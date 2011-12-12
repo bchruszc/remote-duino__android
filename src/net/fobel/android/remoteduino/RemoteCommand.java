@@ -2,6 +2,8 @@ package net.fobel.android.remoteduino;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,6 +18,7 @@ public class RemoteCommand implements Serializable {
 	public String label;
 	public String protocol;
 	public String code;
+	public List<Integer> raw;
 	
 	public RemoteCommand(String label, String protocol, String code) {
 		/* Create a new RemoteCommand instance based specific protocol and code values. */
@@ -34,6 +37,7 @@ public class RemoteCommand implements Serializable {
 		String patternstr__code = "<h2>\\s*(.*?)\\s*</h2>";
 		Pattern pattern__code = Pattern.compile(patternstr__code, Pattern.DOTALL | Pattern.MULTILINE);
 		String patternstr__protocol = "Received\\s+(NEC|SONY|RC6|RC5)\\[(\\d+)\\]:";
+//		String patternstr__protocol = "Received\\s+(NEC|SONY|RC6|RC5):";
 		Pattern pattern__protocol = Pattern.compile(patternstr__protocol, Pattern.DOTALL | Pattern.MULTILINE);
 		
 		Matcher matcher = pattern__code.matcher(response);
@@ -42,7 +46,24 @@ public class RemoteCommand implements Serializable {
 		if(matchFound) {
 	        this.code = "0x" + matcher.group(1);
 		} else {
-			throw new IOException("No code found!");
+			// No known code found - check for raw data and save it!
+			if(response.contains("unknown code")){
+				protocol = WebArduinoIRDevice.kProtocolRaw;
+				raw = new ArrayList<Integer>();
+				boolean hitFirstMark = true;
+				Pattern markPattern = Pattern.compile("(s|m)(\\d+)");
+				matcher = markPattern.matcher(response);
+				while(matcher.find()){
+					if(!hitFirstMark && matcher.group(1).equals("s")) { 
+						continue; // Wait until the first "m" before recording.
+					}
+					String code = matcher.group(2);
+					raw.add(Integer.parseInt(code));
+				}
+				return;
+			} else {
+				throw new IOException("No code found!");
+			}
 		}
 		
 		matcher = pattern__protocol.matcher(response);
@@ -50,10 +71,6 @@ public class RemoteCommand implements Serializable {
 
 		if(matchFound) {
 	        this.protocol = matcher.group(2);
-		} else {
-			// TODO:  Don't do this.  It makes Brad's Stereo work.
-//			throw new IOException("No protocol found!");
-			this.protocol = "1";
 		}
 	}
 	
@@ -73,6 +90,9 @@ public class RemoteCommand implements Serializable {
 	}
     
     public String send(WebArduinoIRDevice irDevice) {
+    	if(WebArduinoIRDevice.kProtocolRaw.equals(protocol)){
+    		return irDevice.sendRaw(raw);
+    	}
     	return irDevice.send(code, protocol);
     }
 }
